@@ -7,6 +7,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { Slider } from "@/components/ui/slider";
 import FloatingControls from "./FloatingControls";
 import ReactPlayer from "react-player";
+import { Capacitor } from '@capacitor/core';
+import MobileRtspPlayer from "./MobileRtspPlayer";
 
 const StreamView = () => {
   const { toast } = useToast();
@@ -17,6 +19,7 @@ const StreamView = () => {
   const [savedStreams, setSavedStreams] = useState<{name: string, url: string}[]>([]);
   const [isStream, setIsStream] = useState(false);
   const [playbackUrl, setPlaybackUrl] = useState("");
+  const [useMobilePlayer, setUseMobilePlayer] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<ReactPlayer | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
@@ -25,6 +28,12 @@ const StreamView = () => {
     // Load saved streams from localStorage
     const savedStreamsList = JSON.parse(localStorage.getItem('savedStreams') || '[]');
     setSavedStreams(savedStreamsList);
+    
+    // Check if running on a mobile platform
+    const isMobile = Capacitor.isNativePlatform();
+    if (isMobile) {
+      console.log(`Running on ${Capacitor.getPlatform()} platform`);
+    }
   }, []);
   
   const startStream = () => {
@@ -42,18 +51,30 @@ const StreamView = () => {
     setIsStream(isRtspStream);
     
     if (isRtspStream) {
-      // For RTSP streams, we would need a proxy server in a real application
-      // Here we'll provide info to user
-      toast({
-        title: "RTSP Stream Detected",
-        description: "Connecting to RTSP feed. For production use, this would require a streaming proxy server.",
-      });
+      // For RTSP streams, check if we're on a native platform
+      const isNative = Capacitor.isNativePlatform();
+      const isAndroid = Capacitor.getPlatform() === 'android';
       
-      // In a real implementation, we would convert the RTSP URL to a WebRTC or HLS format through a proxy
-      // For demo, we'll directly use the RTSP URL with React Player which can handle RTSP in some cases
+      // Use mobile player for RTSP on Android
+      if (isNative && isAndroid) {
+        setUseMobilePlayer(true);
+        toast({
+          title: "RTSP Stream on Android",
+          description: "Using native Android capabilities for RTSP streaming",
+        });
+      } else {
+        // For web or iOS, use ReactPlayer with warning
+        setUseMobilePlayer(false);
+        toast({
+          title: "RTSP Stream Detected",
+          description: "Limited RTSP support in browser. For better results, use Android native app.",
+        });
+      }
+      
       setPlaybackUrl(rtspUrl);
     } else {
       // For non-RTSP URLs (like HTTP/HTTPS), we can play directly
+      setUseMobilePlayer(false);
       setPlaybackUrl(rtspUrl);
       
       // Fallback to sample video if URL doesn't seem valid
@@ -227,7 +248,14 @@ const StreamView = () => {
       >
         {isStreaming ? (
           <>
-            {isStream ? (
+            {useMobilePlayer ? (
+              <MobileRtspPlayer 
+                url={playbackUrl} 
+                width="100%" 
+                height="100%" 
+                className="max-h-full max-w-full"
+              />
+            ) : isStream ? (
               <ReactPlayer
                 ref={playerRef}
                 url={playbackUrl}
