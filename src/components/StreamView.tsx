@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -5,6 +6,7 @@ import { Play, Pause, Maximize, ZoomIn, ZoomOut, Save, X } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Slider } from "@/components/ui/slider";
 import FloatingControls from "./FloatingControls";
+import ReactPlayer from "react-player";
 
 const StreamView = () => {
   const { toast } = useToast();
@@ -13,7 +15,10 @@ const StreamView = () => {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isFloating, setIsFloating] = useState(false);
   const [savedStreams, setSavedStreams] = useState<{name: string, url: string}[]>([]);
+  const [isStream, setIsStream] = useState(false);
+  const [playbackUrl, setPlaybackUrl] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playerRef = useRef<ReactPlayer | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
@@ -32,47 +37,72 @@ const StreamView = () => {
       return;
     }
     
-    // In a web environment, we need a server to proxy RTSP streams to WebRTC or HLS
-    // This is a simplified demonstration - in a real app, you'd need a server component
+    // Check if URL is RTSP
+    const isRtspStream = rtspUrl.startsWith('rtsp://');
+    setIsStream(isRtspStream);
     
-    toast({
-      title: "Stream Info",
-      description: "In a real Android app, this would connect to the RTSP stream. For this demo, we'll show a sample video.",
-    });
-    
-    // For demo purposes, we'll use a sample video
-    if (videoRef.current) {
-      videoRef.current.src = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
-      videoRef.current.play();
+    if (isRtspStream) {
+      // For RTSP streams, we would need a proxy server in a real application
+      // Here we'll provide info to user
+      toast({
+        title: "RTSP Stream Detected",
+        description: "Connecting to RTSP feed. For production use, this would require a streaming proxy server.",
+      });
+      
+      // In a real implementation, we would convert the RTSP URL to a WebRTC or HLS format through a proxy
+      // For demo, we'll directly use the RTSP URL with React Player which can handle RTSP in some cases
+      setPlaybackUrl(rtspUrl);
+    } else {
+      // For non-RTSP URLs (like HTTP/HTTPS), we can play directly
+      setPlaybackUrl(rtspUrl);
+      
+      // Fallback to sample video if URL doesn't seem valid
+      if (!rtspUrl.match(/^https?:\/\/.+/) && !rtspUrl.match(/^rtsp:\/\/.+/)) {
+        toast({
+          title: "Invalid URL Format",
+          description: "Using demo video instead. Please provide a valid URL (http://, https://, or rtsp://).",
+        });
+        setPlaybackUrl("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4");
+      }
     }
     
     setIsStreaming(true);
   };
   
   const stopStream = () => {
+    setIsStreaming(false);
+    setPlaybackUrl("");
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.src = "";
     }
-    setIsStreaming(false);
   };
   
   const handleZoomChange = (value: number[]) => {
     setZoomLevel(value[0]);
-    if (videoRef.current) {
-      // In a web environment, we simulate zoom with CSS transform
+    if (videoContainerRef.current) {
       const scale = 1 + (value[0] - 1) * 0.9; // Scale from 1x to 10x
-      videoRef.current.style.transform = `scale(${scale})`;
+      
+      if (isStream) {
+        // For ReactPlayer
+        const playerWrapper = videoContainerRef.current.querySelector('.react-player');
+        if (playerWrapper) {
+          (playerWrapper as HTMLElement).style.transform = `scale(${scale})`;
+          (playerWrapper as HTMLElement).style.transformOrigin = 'center center';
+        }
+      } else if (videoRef.current) {
+        // For regular video element
+        videoRef.current.style.transform = `scale(${scale})`;
+        videoRef.current.style.transformOrigin = 'center center';
+      }
     }
   };
   
   const toggleFullscreen = () => {
-    if (!videoRef.current) return;
-    
     if (document.fullscreenElement) {
       document.exitFullscreen();
-    } else {
-      videoRef.current.requestFullscreen();
+    } else if (videoContainerRef.current) {
+      videoContainerRef.current.requestFullscreen();
     }
   };
   
@@ -138,7 +168,7 @@ const StreamView = () => {
       <div className="p-4">
         <div className="flex space-x-2">
           <Input
-            placeholder="Enter RTSP URL (e.g., rtsp://example.com/stream)"
+            placeholder="Enter stream URL (e.g., rtsp://example.com/stream or http://...)"
             value={rtspUrl}
             onChange={(e) => setRtspUrl(e.target.value)}
             className="flex-1"
@@ -197,11 +227,36 @@ const StreamView = () => {
       >
         {isStreaming ? (
           <>
-            <video
-              ref={videoRef}
-              className="max-h-full max-w-full object-contain"
-              controls
-            />
+            {isStream ? (
+              <ReactPlayer
+                ref={playerRef}
+                url={playbackUrl}
+                playing={true}
+                controls={true}
+                width="100%"
+                height="100%"
+                className="react-player"
+                config={{
+                  file: {
+                    attributes: {
+                      style: {
+                        objectFit: 'contain',
+                        maxHeight: '100%',
+                        maxWidth: '100%',
+                      }
+                    }
+                  }
+                }}
+              />
+            ) : (
+              <video
+                ref={videoRef}
+                className="max-h-full max-w-full object-contain"
+                controls
+                src={playbackUrl}
+                autoPlay
+              />
+            )}
             
             {/* Zoom controls */}
             <div className="absolute bottom-4 left-4 right-4 bg-black/60 p-4 rounded-lg">
@@ -257,8 +312,8 @@ const StreamView = () => {
           </>
         ) : (
           <div className="text-zinc-500 text-center p-4">
-            <p>Enter an RTSP URL and press Connect to start streaming</p>
-            <p className="text-xs mt-2">Example: rtsp://your-camera-ip:554/stream</p>
+            <p>Enter a stream URL and press Connect to start streaming</p>
+            <p className="text-xs mt-2">Supported formats: RTSP, HTTP/HTTPS video streams</p>
           </div>
         )}
       </div>
@@ -283,6 +338,11 @@ const StreamView = () => {
         
         .floating-video:hover .absolute {
           display: flex;
+        }
+
+        .react-player {
+          max-width: 100%;
+          max-height: 100%;
         }
         `}
       </style>
