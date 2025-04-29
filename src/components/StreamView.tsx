@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -264,7 +263,8 @@ const StreamView = () => {
         )}
       </div>
       
-      <style jsx global>{`
+      <style>
+        {`
         .has-floating-video .floating-video {
           position: fixed;
           bottom: 20px;
@@ -284,7 +284,8 @@ const StreamView = () => {
         .floating-video:hover .absolute {
           display: flex;
         }
-      `}</style>
+        `}
+      </style>
     </div>
   );
 };
