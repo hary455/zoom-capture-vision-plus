@@ -1,8 +1,6 @@
-
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Video, ZoomIn, ZoomOut } from "lucide-react";
-import { Slider } from "@/components/ui/slider";
+import { Camera, Video } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import CameraControls from "./CameraControls";
 
@@ -17,6 +15,14 @@ const CameraView = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   
+  // Keep track of touch for pinch zoom
+  const touchRef = useRef({
+    initialDistance: 0,
+    initialZoom: 1,
+    maxZoom: 10,
+    minZoom: 1
+  });
+
   useEffect(() => {
     let stream: MediaStream | null = null;
     
@@ -57,6 +63,61 @@ const CameraView = () => {
       }
     };
   }, [isFrontCamera, toast]);
+  
+  // Handle pinch zoom gestures
+  useEffect(() => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    
+    // Calculate distance between two touch points
+    const getDistance = (touches: TouchList): number => {
+      if (touches.length < 2) return 0;
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+    
+    // Handle touch start
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        touchRef.current.initialDistance = getDistance(e.touches);
+        touchRef.current.initialZoom = zoomLevel;
+        e.preventDefault();
+      }
+    };
+    
+    // Handle touch move (for pinch)
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        const currentDistance = getDistance(e.touches);
+        const initialDistance = touchRef.current.initialDistance;
+        
+        if (initialDistance > 0) {
+          // Calculate new zoom level based on pinch
+          const scale = currentDistance / initialDistance;
+          let newZoomLevel = touchRef.current.initialZoom * scale;
+          
+          // Clamp zoom level between min and max
+          newZoomLevel = Math.max(touchRef.current.minZoom, Math.min(touchRef.current.maxZoom, newZoomLevel));
+          
+          // Apply zoom
+          setZoomLevel(newZoomLevel);
+          videoElement.style.transform = `scale(${newZoomLevel})`;
+        }
+        e.preventDefault();
+      }
+    };
+    
+    // Add event listeners
+    videoElement.addEventListener('touchstart', handleTouchStart);
+    videoElement.addEventListener('touchmove', handleTouchMove);
+    
+    // Clean up
+    return () => {
+      videoElement.removeEventListener('touchstart', handleTouchStart);
+      videoElement.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [zoomLevel]);
   
   const handleTakePhoto = () => {
     if (videoRef.current && canvasRef.current) {
@@ -185,15 +246,6 @@ const CameraView = () => {
     }
   };
   
-  const handleZoomChange = (value: number[]) => {
-    setZoomLevel(value[0]);
-    if (videoRef.current) {
-      // In a web environment, we simulate zoom with CSS transform
-      const scale = 1 + (value[0] - 1) * 0.9; // Scale from 1x to 10x
-      videoRef.current.style.transform = `scale(${scale})`;
-    }
-  };
-  
   const handleFlipCamera = () => {
     setIsFrontCamera(!isFrontCamera);
     toast({
@@ -226,16 +278,11 @@ const CameraView = () => {
           </div>
         )}
         
-        {/* Zoom slider */}
-        <div className="absolute bottom-28 left-4 right-4">
-          <Slider 
-            min={1} 
-            max={10} 
-            step={0.1} 
-            value={[zoomLevel]}
-            onValueChange={handleZoomChange}
-            className="w-full"
-          />
+        {/* Pinch instructions overlay - show briefly */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="bg-black/40 px-4 py-2 rounded-lg text-white text-sm animate-fade-out">
+            Pinch to zoom (up to 10x)
+          </div>
         </div>
       </div>
       
