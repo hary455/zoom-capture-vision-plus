@@ -1,8 +1,18 @@
 
 import React, { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Image, Video } from "lucide-react";
+import { Image, Video, Trash2, Share2, ArrowLeft } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface MediaItem {
   id: number;
@@ -12,10 +22,12 @@ interface MediaItem {
 }
 
 const GalleryView = () => {
+  const { toast } = useToast();
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   
-  useEffect(() => {
+  const loadMedia = () => {
     // Load photos from localStorage
     const photos = JSON.parse(localStorage.getItem('capturedPhotos') || '[]').map(
       (photo: any) => ({ ...photo, type: 'photo' })
@@ -32,19 +44,108 @@ const GalleryView = () => {
     );
     
     setMediaItems(allMedia);
+  };
+  
+  useEffect(() => {
+    loadMedia();
   }, []);
+  
+  const handleShareMedia = () => {
+    if (!selectedItem) return;
+    
+    // Web Share API if supported
+    if (navigator.share) {
+      const shareData = {
+        title: `ZoomCapture ${selectedItem.type === 'photo' ? 'Photo' : 'Video'}`,
+        text: `Shared from ZoomCapture Vision+`,
+        // In a real app, we'd have a proper URL to the media
+      };
+      
+      navigator.share(shareData)
+        .then(() => {
+          toast({
+            title: "Shared",
+            description: `${selectedItem.type === 'photo' ? 'Photo' : 'Video'} shared successfully.`,
+          });
+        })
+        .catch((error) => {
+          console.error("Error sharing:", error);
+          toast({
+            title: "Share failed",
+            description: "Could not share the media.",
+            variant: "destructive",
+          });
+        });
+    } else {
+      // Fallback for browsers that don't support the Web Share API
+      toast({
+        title: "Share not supported",
+        description: "Your browser doesn't support sharing.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  const handleDeleteMedia = () => {
+    if (!selectedItem) return;
+    
+    setShowDeleteDialog(true);
+  };
+  
+  const confirmDelete = () => {
+    if (!selectedItem) return;
+    
+    try {
+      if (selectedItem.type === 'photo') {
+        const photos = JSON.parse(localStorage.getItem('capturedPhotos') || '[]');
+        const updatedPhotos = photos.filter((photo: any) => photo.id !== selectedItem.id);
+        localStorage.setItem('capturedPhotos', JSON.stringify(updatedPhotos));
+      } else {
+        const videos = JSON.parse(localStorage.getItem('capturedVideos') || '[]');
+        const updatedVideos = videos.filter((video: any) => video.id !== selectedItem.id);
+        localStorage.setItem('capturedVideos', JSON.stringify(updatedVideos));
+      }
+      
+      setShowDeleteDialog(false);
+      setSelectedItem(null);
+      loadMedia();
+      
+      toast({
+        title: "Deleted",
+        description: `${selectedItem.type === 'photo' ? 'Photo' : 'Video'} deleted successfully.`,
+      });
+    } catch (error) {
+      console.error("Error deleting media:", error);
+      toast({
+        title: "Delete failed",
+        description: "Could not delete the media.",
+        variant: "destructive",
+      });
+    }
+  };
   
   return (
     <div className="flex flex-col h-full bg-zinc-900">
       {selectedItem ? (
         <div className="flex flex-col h-full">
           <div className="p-4 flex justify-between items-center">
-            <h2 className="text-lg font-medium">
+            <div className="flex items-center">
+              <Button variant="ghost" size="sm" onClick={() => setSelectedItem(null)}>
+                <ArrowLeft className="h-5 w-5 mr-1" />
+                Back
+              </Button>
+            </div>
+            <div className="text-sm text-zinc-400">
               {new Date(selectedItem.timestamp).toLocaleString()}
-            </h2>
-            <Button variant="ghost" size="sm" onClick={() => setSelectedItem(null)}>
-              Back to Gallery
-            </Button>
+            </div>
+            <div className="flex items-center">
+              <Button variant="ghost" size="icon" onClick={handleShareMedia}>
+                <Share2 className="h-5 w-5" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={handleDeleteMedia}>
+                <Trash2 className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
           
           <div className="flex-1 flex items-center justify-center bg-black">
@@ -59,6 +160,7 @@ const GalleryView = () => {
                 src={selectedItem.data} 
                 controls 
                 className="max-h-full max-w-full"
+                autoPlay
               />
             )}
           </div>
@@ -136,9 +238,27 @@ const GalleryView = () => {
           </TabsContent>
         </Tabs>
       )}
+      
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Delete media</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this {selectedItem?.type}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
-import { Button } from "@/components/ui/button";
 export default GalleryView;

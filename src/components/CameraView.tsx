@@ -14,12 +14,19 @@ const CameraView = () => {
   const [flashMode, setFlashMode] = useState("off");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
   
   useEffect(() => {
     let stream: MediaStream | null = null;
     
     const startCamera = async () => {
       try {
+        if (mediaRecorderRef.current && isRecording) {
+          mediaRecorderRef.current.stop();
+          setIsRecording(false);
+        }
+        
         const constraints = {
           video: { 
             facingMode: isFrontCamera ? "user" : "environment",
@@ -89,24 +96,92 @@ const CameraView = () => {
     }
   };
   
-  const handleRecordVideo = () => {
+  const handleRecordVideo = async () => {
+    if (!videoRef.current) return;
+    
     if (isRecording) {
-      // Stop recording logic would go here
-      setIsRecording(false);
-      toast({
-        title: "Recording Stopped",
-        description: "Video saved to gallery.",
-      });
+      // Stop recording
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.stop();
+      }
       
-      // In a real app, we'd save the recorded video to the gallery here
+      // We don't set isRecording to false here, because we'll do that after saving the video
     } else {
-      setIsRecording(true);
-      toast({
-        title: "Recording Started",
-        description: "Recording video...",
-      });
-      
-      // In a real app, we'd start recording here
+      // Start recording with both audio and video
+      try {
+        const currentStream = videoRef.current.srcObject as MediaStream;
+        
+        // Get audio stream
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        
+        // Combine video and audio tracks
+        const combinedStream = new MediaStream();
+        
+        // Add video tracks from the current stream
+        currentStream.getVideoTracks().forEach(track => {
+          combinedStream.addTrack(track);
+        });
+        
+        // Add audio tracks from audio stream
+        audioStream.getAudioTracks().forEach(track => {
+          combinedStream.addTrack(track);
+        });
+        
+        // Create new media recorder with combined stream
+        chunksRef.current = [];
+        const mediaRecorder = new MediaRecorder(combinedStream);
+        
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            chunksRef.current.push(e.data);
+          }
+        };
+        
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          
+          // Save to localStorage (as base64)
+          const reader = new FileReader();
+          reader.readAsDataURL(blob);
+          reader.onloadend = () => {
+            const base64data = reader.result;
+            const videos = JSON.parse(localStorage.getItem('capturedVideos') || '[]');
+            const newVideo = {
+              id: Date.now(),
+              data: base64data,
+              timestamp: new Date().toISOString()
+            };
+            localStorage.setItem('capturedVideos', JSON.stringify([...videos, newVideo]));
+          };
+          
+          setIsRecording(false);
+          
+          toast({
+            title: "Recording Stopped",
+            description: "Video saved to gallery.",
+          });
+          
+          // Clean up audio tracks
+          audioStream.getTracks().forEach(track => track.stop());
+        };
+        
+        mediaRecorderRef.current = mediaRecorder;
+        mediaRecorder.start();
+        setIsRecording(true);
+        
+        toast({
+          title: "Recording Started",
+          description: "Recording video with audio...",
+        });
+      } catch (error) {
+        console.error("Error starting recording:", error);
+        toast({
+          title: "Recording Error",
+          description: "Could not start recording. Please check permissions.",
+          variant: "destructive",
+        });
+      }
     }
   };
   
@@ -117,6 +192,14 @@ const CameraView = () => {
       const scale = 1 + (value[0] - 1) * 0.9; // Scale from 1x to 10x
       videoRef.current.style.transform = `scale(${scale})`;
     }
+  };
+  
+  const handleFlipCamera = () => {
+    setIsFrontCamera(!isFrontCamera);
+    toast({
+      title: "Camera Flipped",
+      description: `Using ${!isFrontCamera ? "front" : "back"} camera`,
+    });
   };
   
   return (
@@ -160,7 +243,7 @@ const CameraView = () => {
         onTakePhoto={handleTakePhoto}
         onRecordVideo={handleRecordVideo}
         isRecording={isRecording}
-        onFlipCamera={() => setIsFrontCamera(!isFrontCamera)}
+        onFlipCamera={handleFlipCamera}
         onFlashToggle={() => setFlashMode(flashMode === "off" ? "on" : "off")}
         flashMode={flashMode}
       />
