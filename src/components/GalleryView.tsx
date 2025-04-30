@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Image, Video, Trash2, Share2, ArrowLeft } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -26,6 +26,7 @@ const GalleryView = () => {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const videoThumbnailsRef = useRef<Map<number, string>>(new Map());
   
   const loadMedia = () => {
     // Load photos from localStorage
@@ -44,6 +45,78 @@ const GalleryView = () => {
     );
     
     setMediaItems(allMedia);
+
+    // Generate thumbnails for videos
+    videos.forEach((video: MediaItem) => {
+      generateVideoThumbnail(video);
+    });
+  };
+
+  // Function to generate thumbnails from videos
+  const generateVideoThumbnail = (videoItem: MediaItem) => {
+    if (videoThumbnailsRef.current.has(videoItem.id)) {
+      return; // Already generated thumbnail
+    }
+
+    try {
+      // Create temporary video element
+      const video = document.createElement('video');
+      video.src = videoItem.data;
+      video.crossOrigin = "anonymous";
+      video.muted = true;
+      video.preload = "metadata";
+      
+      // When video metadata is loaded, seek to an appropriate position
+      video.onloadedmetadata = () => {
+        // Seek to 25% of the video duration to get a representative frame
+        const seekTime = video.duration * 0.25;
+        video.currentTime = isNaN(seekTime) ? 1 : seekTime;
+      };
+
+      // When seeking is complete, capture the frame
+      video.onseeked = () => {
+        try {
+          // Create a canvas to draw the video frame
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          
+          if (ctx) {
+            // Set canvas dimensions to video dimensions
+            canvas.width = video.videoWidth || 320;
+            canvas.height = video.videoHeight || 180;
+            
+            // Draw the video frame on the canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Convert to data URL
+            const thumbnailUrl = canvas.toDataURL('image/jpeg');
+            
+            // Store the thumbnail
+            videoThumbnailsRef.current.set(videoItem.id, thumbnailUrl);
+            
+            // Force a re-render to display the thumbnails
+            setMediaItems(prevItems => [...prevItems]);
+          }
+        } catch (error) {
+          console.error("Error creating thumbnail canvas:", error);
+        } finally {
+          // Clean up
+          video.pause();
+          video.src = "";
+          video.load();
+        }
+      };
+
+      // Handle errors
+      video.onerror = () => {
+        console.error("Error loading video for thumbnail generation");
+      };
+
+      // Start loading the video
+      video.load();
+    } catch (error) {
+      console.error("Error generating video thumbnail:", error);
+    }
   };
   
   useEffect(() => {
@@ -104,6 +177,9 @@ const GalleryView = () => {
         const videos = JSON.parse(localStorage.getItem('capturedVideos') || '[]');
         const updatedVideos = videos.filter((video: any) => video.id !== selectedItem.id);
         localStorage.setItem('capturedVideos', JSON.stringify(updatedVideos));
+        
+        // Remove thumbnail from cache
+        videoThumbnailsRef.current.delete(selectedItem.id);
       }
       
       setShowDeleteDialog(false);
@@ -161,6 +237,8 @@ const GalleryView = () => {
                 controls 
                 className="max-h-full max-w-full"
                 autoPlay
+                controlsList="nodownload"
+                playsInline
               />
             )}
           </div>
@@ -219,12 +297,25 @@ const GalleryView = () => {
                       className="aspect-square relative cursor-pointer"
                       onClick={() => setSelectedItem(video)}
                     >
-                      <div className="absolute inset-0 flex items-center justify-center bg-zinc-800">
-                        <Video className="h-8 w-8 text-zinc-400" />
-                      </div>
-                      <div className="absolute bottom-1 right-1">
-                        <Video className="h-4 w-4 text-white" />
-                      </div>
+                      {videoThumbnailsRef.current.has(video.id) ? (
+                        <div className="relative w-full h-full">
+                          <img 
+                            src={videoThumbnailsRef.current.get(video.id)} 
+                            alt={`Video thumbnail ${video.id}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute bottom-1 right-1 bg-black/60 rounded-full p-1">
+                            <Video className="h-4 w-4 text-white" />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                          <Video className="h-8 w-8 text-zinc-400" />
+                          <div className="absolute bottom-1 right-1">
+                            <Video className="h-4 w-4 text-white" />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 
