@@ -2,13 +2,14 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Play, Pause, Maximize, ZoomIn, ZoomOut, Save, X } from "lucide-react";
+import { Play, Pause, Maximize, ZoomIn, ZoomOut, Save, X, Camera, Film, Image } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Slider } from "@/components/ui/slider";
 import FloatingControls from "./FloatingControls";
 import ReactPlayer from "react-player";
 import { Capacitor } from '@capacitor/core';
 import MobileRtspPlayer from "./MobileRtspPlayer";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const StreamView = () => {
   const { toast } = useToast();
@@ -23,6 +24,21 @@ const StreamView = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<ReactPlayer | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  // Camera related states
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isFrontCamera, setIsFrontCamera] = useState(true);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  
+  // Touch zoom reference
+  const touchRef = useRef({
+    initialDistance: 0,
+    initialZoom: 1,
+    maxZoom: 10,
+    minZoom: 1
+  });
   
   useEffect(() => {
     // Load saved streams from localStorage
@@ -36,6 +52,106 @@ const StreamView = () => {
     }
   }, []);
   
+  // Setup camera when active
+  useEffect(() => {
+    if (isCameraActive) {
+      // Setup camera stream
+      const setupCamera = async () => {
+        try {
+          const constraints = {
+            video: {
+              facingMode: isFrontCamera ? "user" : "environment",
+              width: { ideal: 1920 },
+              height: { ideal: 1080 }
+            }
+          };
+          
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          
+          if (cameraVideoRef.current) {
+            cameraVideoRef.current.srcObject = stream;
+            cameraStreamRef.current = stream;
+          }
+        } catch (error) {
+          console.error("Error accessing camera:", error);
+          toast({
+            title: "Camera Error",
+            description: "Could not access the camera. Please check permissions.",
+            variant: "destructive",
+          });
+        }
+      };
+      
+      setupCamera();
+    }
+    
+    // Cleanup function
+    return () => {
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach(track => track.stop());
+        cameraStreamRef.current = null;
+      }
+    };
+  }, [isCameraActive, isFrontCamera, toast]);
+  
+  // Handle pinch zoom gestures for camera
+  useEffect(() => {
+    if (!isCameraActive) return;
+    
+    const videoElement = cameraVideoRef.current;
+    if (!videoElement) return;
+    
+    // Calculate distance between two touch points
+    const getDistance = (touches: TouchList): number => {
+      if (touches.length < 2) return 0;
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+    
+    // Handle touch start
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        touchRef.current.initialDistance = getDistance(e.touches);
+        touchRef.current.initialZoom = zoomLevel;
+        e.preventDefault();
+      }
+    };
+    
+    // Handle touch move (for pinch)
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        const currentDistance = getDistance(e.touches);
+        const initialDistance = touchRef.current.initialDistance;
+        
+        if (initialDistance > 0) {
+          // Calculate new zoom level based on pinch
+          const scale = currentDistance / initialDistance;
+          let newZoomLevel = touchRef.current.initialZoom * scale;
+          
+          // Clamp zoom level between min and max
+          newZoomLevel = Math.max(touchRef.current.minZoom, Math.min(touchRef.current.maxZoom, newZoomLevel));
+          
+          // Apply zoom
+          setZoomLevel(newZoomLevel);
+          videoElement.style.transform = `scale(${newZoomLevel})`;
+        }
+        e.preventDefault();
+      }
+    };
+    
+    // Add event listeners
+    videoElement.addEventListener('touchstart', handleTouchStart);
+    videoElement.addEventListener('touchmove', handleTouchMove);
+    
+    // Clean up
+    return () => {
+      videoElement.removeEventListener('touchstart', handleTouchStart);
+      videoElement.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [zoomLevel, isCameraActive]);
+  
+  // Regular stream functions
   const startStream = () => {
     if (!rtspUrl) {
       toast({
@@ -84,6 +200,15 @@ const StreamView = () => {
           description: "Using demo video instead. Please provide a valid URL (http://, https://, or rtsp://).",
         });
         setPlaybackUrl("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4");
+      }
+    }
+    
+    // Turn off camera if active when starting stream
+    if (isCameraActive) {
+      setIsCameraActive(false);
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach(track => track.stop());
+        cameraStreamRef.current = null;
       }
     }
     
@@ -184,6 +309,239 @@ const StreamView = () => {
     });
   };
   
+  // Camera functions
+  const toggleCamera = () => {
+    if (isCameraActive) {
+      // Stop camera
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach(track => track.stop());
+        cameraStreamRef.current = null;
+      }
+      setIsCameraActive(false);
+    } else {
+      // Stop streaming if active
+      if (isStreaming) {
+        stopStream();
+      }
+      
+      setIsCameraActive(true);
+    }
+  };
+  
+  const handleFlipCamera = () => {
+    setIsFrontCamera(!isFrontCamera);
+    
+    // When we change camera direction, we need to restart the camera
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(track => track.stop());
+      cameraStreamRef.current = null;
+    }
+  };
+  
+  // Function to take a photo while streaming or using camera
+  const capturePhoto = () => {
+    // Check if we're in camera mode or streaming mode
+    let videoElement: HTMLVideoElement | null = null;
+    
+    if (isCameraActive && cameraVideoRef.current) {
+      videoElement = cameraVideoRef.current;
+    } else if (isStreaming && videoRef.current) {
+      videoElement = videoRef.current;
+    } else if (isStreaming && playerRef.current) {
+      // For ReactPlayer, we need to find the actual video element
+      const playerElement = playerRef.current.getInternalPlayer() as HTMLVideoElement;
+      if (playerElement) {
+        videoElement = playerElement;
+      }
+    }
+    
+    if (videoElement && canvasRef.current) {
+      try {
+        // Get video dimensions
+        const { videoWidth, videoHeight } = videoElement;
+        
+        // Set canvas dimensions to match video
+        canvasRef.current.width = videoWidth;
+        canvasRef.current.height = videoHeight;
+        
+        // Draw the current frame to the canvas
+        const ctx = canvasRef.current.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(videoElement, 0, 0, videoWidth, videoHeight);
+          
+          // Convert canvas content to data URL
+          const photoData = canvasRef.current.toDataURL('image/jpeg');
+          
+          // Save to gallery (localStorage)
+          saveToGallery(photoData, 'photo');
+          
+          toast({
+            title: "Photo Captured",
+            description: "Photo saved to gallery",
+          });
+        }
+      } catch (error) {
+        console.error("Error capturing photo:", error);
+        toast({
+          title: "Capture Failed",
+          description: "Could not capture photo",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+  
+  // Function to start/stop recording the stream
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  
+  const toggleRecording = () => {
+    // For camera recording
+    if (isCameraActive && cameraVideoRef.current && cameraStreamRef.current) {
+      if (!isRecording) {
+        // Start recording
+        try {
+          const mediaRecorder = new MediaRecorder(cameraStreamRef.current);
+          mediaRecorderRef.current = mediaRecorder;
+          chunksRef.current = [];
+          
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+              chunksRef.current.push(e.data);
+            }
+          };
+          
+          mediaRecorder.onstop = () => {
+            const blob = new Blob(chunksRef.current, { type: 'video/mp4' });
+            const videoURL = URL.createObjectURL(blob);
+            saveToGallery(videoURL, 'video');
+            chunksRef.current = [];
+          };
+          
+          mediaRecorder.start();
+          setIsRecording(true);
+          
+          toast({
+            title: "Recording Started",
+            description: "Recording camera feed...",
+          });
+        } catch (error) {
+          console.error("Error starting recording:", error);
+          toast({
+            title: "Recording Failed",
+            description: "Could not start recording",
+            variant: "destructive",
+          });
+        }
+      } else if (mediaRecorderRef.current) {
+        // Stop recording
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+        
+        toast({
+          title: "Recording Stopped",
+          description: "Video saved to gallery",
+        });
+      }
+    }
+    // For stream recording
+    else if (isStreaming && !isCameraActive) {
+      let stream: MediaStream | null = null;
+      
+      // Get the stream from the video element
+      if (videoRef.current && videoRef.current.srcObject) {
+        stream = videoRef.current.srcObject as MediaStream;
+      } 
+      // For ReactPlayer, we need to capture canvas/video
+      else {
+        // We would need to use screen capture API or another method
+        // to record ReactPlayer content - simplified for demo
+        toast({
+          title: "Recording Limitation",
+          description: "Recording RTSP streams requires additional setup",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      if (stream && !isRecording) {
+        // Start recording
+        try {
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+          chunksRef.current = [];
+          
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+              chunksRef.current.push(e.data);
+            }
+          };
+          
+          mediaRecorder.onstop = () => {
+            const blob = new Blob(chunksRef.current, { type: 'video/mp4' });
+            const videoURL = URL.createObjectURL(blob);
+            saveToGallery(videoURL, 'video');
+            chunksRef.current = [];
+          };
+          
+          mediaRecorder.start();
+          setIsRecording(true);
+          
+          toast({
+            title: "Recording Started",
+            description: "Recording stream...",
+          });
+        } catch (error) {
+          console.error("Error starting stream recording:", error);
+          toast({
+            title: "Recording Failed",
+            description: "Could not record stream",
+            variant: "destructive",
+          });
+        }
+      } else if (mediaRecorderRef.current && isRecording) {
+        // Stop recording
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+        
+        toast({
+          title: "Recording Stopped",
+          description: "Stream recording saved to gallery",
+        });
+      }
+    }
+  };
+  
+  // Save media to gallery (localStorage)
+  const saveToGallery = (dataUrl: string, type: 'photo' | 'video') => {
+    try {
+      const timestamp = new Date().toISOString();
+      const id = Date.now();
+      
+      if (type === 'photo') {
+        // Save photo to localStorage
+        const existingPhotos = JSON.parse(localStorage.getItem('capturedPhotos') || '[]');
+        const newPhoto = { id, data: dataUrl, timestamp };
+        const updatedPhotos = [newPhoto, ...existingPhotos];
+        localStorage.setItem('capturedPhotos', JSON.stringify(updatedPhotos));
+      } else {
+        // Save video to localStorage
+        const existingVideos = JSON.parse(localStorage.getItem('capturedVideos') || '[]');
+        const newVideo = { id, data: dataUrl, timestamp };
+        const updatedVideos = [newVideo, ...existingVideos];
+        localStorage.setItem('capturedVideos', JSON.stringify(updatedVideos));
+      }
+    } catch (error) {
+      console.error("Error saving to gallery:", error);
+      toast({
+        title: "Save Failed",
+        description: `Could not save ${type} to gallery`,
+        variant: "destructive",
+      });
+    }
+  };
+  
   return (
     <div className={`flex flex-col h-full bg-zinc-900 ${isFloating ? 'has-floating-video' : ''}`}>
       <div className="p-4">
@@ -210,10 +568,16 @@ const StreamView = () => {
               </>
             )}
           </Button>
+          <Button
+            onClick={toggleCamera}
+            variant={isCameraActive ? "destructive" : "secondary"}
+          >
+            <Camera className="h-4 w-4" />
+          </Button>
         </div>
         
         {/* Saved streams */}
-        {savedStreams.length > 0 && (
+        {savedStreams.length > 0 && !isCameraActive && (
           <div className="mt-4">
             <h3 className="text-sm font-medium text-zinc-300 mb-2">Saved Streams</h3>
             <div className="flex flex-wrap gap-2">
@@ -246,7 +610,48 @@ const StreamView = () => {
         ref={videoContainerRef} 
         className={`relative flex-1 bg-black flex items-center justify-center ${isFloating ? 'floating-video' : ''}`}
       >
-        {isStreaming ? (
+        {/* Camera view */}
+        {isCameraActive ? (
+          <>
+            <video
+              ref={cameraVideoRef}
+              className="max-h-full max-w-full object-contain"
+              autoPlay
+              playsInline
+            />
+            <div className="absolute bottom-4 left-0 right-0 flex justify-center space-x-4">
+              <Button 
+                variant="secondary" 
+                size="icon"
+                onClick={handleFlipCamera}
+              >
+                <ZoomIn className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="default"
+                size="icon"
+                className="rounded-full w-16 h-16"
+                onClick={capturePhoto}
+              >
+                <Camera className="h-7 w-7" />
+              </Button>
+              <Button
+                variant={isRecording ? "destructive" : "secondary"}
+                size="icon"
+                onClick={toggleRecording}
+              >
+                <Film className="h-5 w-5" />
+              </Button>
+            </div>
+            
+            {/* Pinch instructions */}
+            <div className="absolute top-4 left-0 right-0 flex justify-center">
+              <div className="bg-black/60 px-3 py-1 rounded text-white text-xs">
+                Pinch to zoom (up to 10x)
+              </div>
+            </div>
+          </>
+        ) : isStreaming ? (
           <>
             {useMobilePlayer ? (
               <MobileRtspPlayer 
@@ -286,30 +691,29 @@ const StreamView = () => {
               />
             )}
             
-            {/* Zoom controls */}
-            <div className="absolute bottom-4 left-4 right-4 bg-black/60 p-4 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <ZoomOut className="h-5 w-5" />
-                <span className="text-white">{zoomLevel.toFixed(1)}x</span>
-                <ZoomIn className="h-5 w-5" />
-              </div>
-              <Slider 
-                min={1} 
-                max={10} 
-                step={0.1} 
-                value={[zoomLevel]}
-                onValueChange={handleZoomChange}
-              />
-            </div>
-            
-            {/* Action buttons */}
-            <div className="absolute top-4 right-4 flex space-x-2">
+            {/* Stream controls */}
+            <div className="absolute bottom-4 left-0 right-0 flex justify-center space-x-4">
               <Button
                 variant="secondary"
                 size="icon"
                 onClick={saveStream}
               >
                 <Save className="h-5 w-5" />
+              </Button>
+              <Button
+                variant={isRecording ? "destructive" : "secondary"}
+                size="icon"
+                onClick={toggleRecording}
+              >
+                <Film className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="default"
+                size="icon"
+                className="rounded-full"
+                onClick={capturePhoto}
+              >
+                <Image className="h-5 w-5" />
               </Button>
               <Button
                 variant="secondary"
@@ -331,6 +735,22 @@ const StreamView = () => {
               </Button>
             </div>
             
+            {/* Zoom controls */}
+            <div className="absolute bottom-20 left-4 right-4 bg-black/60 p-4 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <ZoomOut className="h-5 w-5" />
+                <span className="text-white">{zoomLevel.toFixed(1)}x</span>
+                <ZoomIn className="h-5 w-5" />
+              </div>
+              <Slider 
+                min={1} 
+                max={10} 
+                step={0.1} 
+                value={[zoomLevel]}
+                onValueChange={handleZoomChange}
+              />
+            </div>
+            
             <FloatingControls 
               isFloating={isFloating} 
               onMinimize={toggleFloatingMode}
@@ -341,10 +761,15 @@ const StreamView = () => {
         ) : (
           <div className="text-zinc-500 text-center p-4">
             <p>Enter a stream URL and press Connect to start streaming</p>
+            <p>- OR -</p>
+            <p>Click the camera button to use your device's camera</p>
             <p className="text-xs mt-2">Supported formats: RTSP, HTTP/HTTPS video streams</p>
           </div>
         )}
       </div>
+      
+      {/* Hidden canvas for photo capture */}
+      <canvas ref={canvasRef} className="hidden" />
       
       <style>
         {`
