@@ -498,6 +498,7 @@ const StreamView = () => {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
   
   const toggleRecording = () => {
     // For camera recording
@@ -550,32 +551,90 @@ const StreamView = () => {
     }
     // For stream recording
     else if (isStreaming && !isCameraActive) {
-      // For external streams, we need a different approach
       if (!isRecording) {
-        // Start recording - for external streams, we'll create a mock recording
-        const startTime = Date.now();
-        setIsRecording(true);
-        
-        toast({
-          title: "Recording Started",
-          description: "Recording stream...",
-        });
-        
-        // Set a timer to check recording status
-        const recordingCheckInterval = setInterval(() => {
-          if (!isRecording) {
-            clearInterval(recordingCheckInterval);
+        // Start recording the stream
+        try {
+          // Get the video element - either from ReactPlayer or direct video element
+          let videoElement: HTMLVideoElement | null = null;
+          
+          if (playerRef.current) {
+            try {
+              // For ReactPlayer, attempt to get the internal player
+              videoElement = playerRef.current.getInternalPlayer() as HTMLVideoElement;
+            } catch (error) {
+              console.log("Could not access ReactPlayer internal element:", error);
+            }
+          } else if (videoRef.current) {
+            videoElement = videoRef.current;
           }
-        }, 1000);
+          
+          if (videoElement && videoElement.captureStream) {
+            // Capture the stream from the video element
+            const stream = videoElement.captureStream();
+            recordingStreamRef.current = stream;
+            
+            // Create media recorder
+            const mediaRecorder = new MediaRecorder(stream, {
+              mimeType: MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : 'video/mp4'
+            });
+            mediaRecorderRef.current = mediaRecorder;
+            chunksRef.current = [];
+            
+            mediaRecorder.ondataavailable = (e) => {
+              if (e.data.size > 0) {
+                chunksRef.current.push(e.data);
+              }
+            };
+            
+            mediaRecorder.onstop = () => {
+              const blob = new Blob(chunksRef.current, { 
+                type: mediaRecorder.mimeType === 'video/webm' ? 'video/webm' : 'video/mp4' 
+              });
+              const videoURL = URL.createObjectURL(blob);
+              
+              // Convert blob to base64 for localStorage
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                if (typeof reader.result === 'string') {
+                  saveToGallery(reader.result, 'video');
+                }
+              };
+              reader.readAsDataURL(blob);
+              
+              chunksRef.current = [];
+              recordingStreamRef.current = null;
+            };
+            
+            // Start recording with reasonable timeslices
+            mediaRecorder.start(1000);
+            setIsRecording(true);
+            
+            toast({
+              title: "Recording Started",
+              description: "Recording stream...",
+            });
+          } else {
+            // Fallback for browsers without captureStream
+            toast({
+              title: "Recording not supported",
+              description: "Your browser doesn't support recording this stream.",
+              variant: "destructive",
+            });
+          }
+        } catch (error) {
+          console.error("Error starting stream recording:", error);
+          toast({
+            title: "Recording Failed",
+            description: "Could not start recording stream",
+            variant: "destructive",
+          });
+        }
       } else {
         // Stop recording
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
         setIsRecording(false);
-        
-        // Create a mock video for external streams
-        const mockVideoData = `data:video/mp4;base64,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`;
-        
-        // Save mock video to gallery
-        saveToGallery(mockVideoData, 'video');
         
         toast({
           title: "Recording Stopped",
