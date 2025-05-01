@@ -8,9 +8,10 @@ interface FloatingControlsProps {
   onMinimize: () => void;
   onMaximize: () => void;
   onClose: () => void;
+  isExternalFloat?: boolean; // Added for external floating
 }
 
-const FloatingControls = ({ isFloating, onMinimize, onMaximize, onClose }: FloatingControlsProps) => {
+const FloatingControls = ({ isFloating, onMinimize, onMaximize, onClose, isExternalFloat }: FloatingControlsProps) => {
   if (!isFloating) return null;
   
   return (

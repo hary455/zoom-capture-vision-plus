@@ -16,6 +16,7 @@ const StreamView = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isFloating, setIsFloating] = useState(false);
+  const [isExternalFloat, setIsExternalFloat] = useState(false); // New state for external floating
   const [savedStreams, setSavedStreams] = useState<{name: string, url: string}[]>([]);
   const [isStream, setIsStream] = useState(false);
   const [playbackUrl, setPlaybackUrl] = useState("");
@@ -24,6 +25,7 @@ const StreamView = () => {
   const playerRef = useRef<ReactPlayer | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const externalWindowRef = useRef<Window | null>(null);
   
   // Camera related states
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -44,11 +46,24 @@ const StreamView = () => {
     const savedStreamsList = JSON.parse(localStorage.getItem('savedStreams') || '[]');
     setSavedStreams(savedStreamsList);
     
-    // Check if running on a mobile platform
-    const isMobile = Capacitor.isNativePlatform();
-    if (isMobile) {
-      console.log(`Running on ${Capacitor.getPlatform()} platform`);
-    }
+    // Handle window closing event for external floating window
+    const handleBeforeUnload = () => {
+      if (externalWindowRef.current) {
+        externalWindowRef.current.close();
+        externalWindowRef.current = null;
+        setIsExternalFloat(false);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (externalWindowRef.current) {
+        externalWindowRef.current.close();
+        externalWindowRef.current = null;
+      }
+    };
   }, []);
   
   // Setup camera when active
@@ -257,11 +272,20 @@ const StreamView = () => {
       if (videoContainerRef.current) {
         videoContainerRef.current.classList.add("floating-video");
       }
-    } else {
+    } else if (isFloating && !isExternalFloat) {
+      // If currently in internal floating mode, toggle back to normal
       setIsFloating(false);
       if (videoContainerRef.current) {
         videoContainerRef.current.classList.remove("floating-video");
       }
+    } else if (isExternalFloat) {
+      // If currently in external floating mode, close the window and toggle back to normal
+      if (externalWindowRef.current) {
+        externalWindowRef.current.close();
+        externalWindowRef.current = null;
+      }
+      setIsExternalFloat(false);
+      setIsFloating(false);
     }
   };
   
@@ -852,7 +876,16 @@ const StreamView = () => {
               <Button
                 variant="secondary"
                 size="icon"
+                onClick={toggleExternalFloatingMode}
+                title="Pop out stream"
+              >
+                <ZoomOut className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="secondary"
+                size="icon"
                 onClick={toggleFloatingMode}
+                title="Minimize stream"
               >
                 {isFloating ? (
                   <ZoomIn className="h-5 w-5" />
@@ -890,6 +923,7 @@ const StreamView = () => {
               onMinimize={toggleFloatingMode}
               onMaximize={toggleFullscreen}
               onClose={stopStream}
+              isExternalFloat={isExternalFloat}
             />
           </>
         ) : (
