@@ -569,6 +569,7 @@ const StreamView = () => {
           }
           
           if (videoElement && videoElement.captureStream) {
+            // Check if captureStream is supported
             // Capture the stream from the video element
             const stream = videoElement.captureStream();
             recordingStreamRef.current = stream;
