@@ -698,6 +698,98 @@ const StreamView = () => {
     }
   };
   
+  // Add the missing toggleExternalFloatingMode function
+  const toggleExternalFloatingMode = () => {
+    if (!isExternalFloat && isStreaming) {
+      // Calculate window dimensions - make it a reasonable size
+      const width = Math.min(640, window.innerWidth * 0.8);
+      const height = Math.min(480, window.innerHeight * 0.8);
+      
+      // Open a new window with the current stream
+      const newWindow = window.open(
+        '', 
+        'StreamWindow',
+        `width=${width},height=${height},toolbar=no,menubar=no,location=no,status=no,resizable=yes`
+      );
+      
+      if (newWindow) {
+        // Set the reference to the new window
+        externalWindowRef.current = newWindow;
+        
+        // Set the floating state
+        setIsFloating(true);
+        setIsExternalFloat(true);
+        
+        // Write content to the new window - a basic HTML page with video element
+        newWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Floating Stream</title>
+            <style>
+              body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+              .video-container { width: 100%; height: 100vh; display: flex; align-items: center; justify-content: center; }
+              video, iframe { max-width: 100%; max-height: 100%; }
+              .controls { position: absolute; top: 10px; right: 10px; display: flex; }
+              button { background: rgba(0,0,0,0.5); color: white; border: none; margin: 2px; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+              button:hover { background: rgba(0,0,0,0.7); }
+            </style>
+          </head>
+          <body>
+            <div class="video-container" id="video-container">
+              ${isStream ? 
+                `<iframe src="${playbackUrl}" frameborder="0" allowfullscreen></iframe>` :
+                `<video src="${playbackUrl}" autoplay controls></video>`
+              }
+            </div>
+            <div class="controls">
+              <button id="close-btn">Close</button>
+            </div>
+            <script>
+              document.getElementById('close-btn').addEventListener('click', function() {
+                window.close();
+              });
+              window.addEventListener('beforeunload', function() {
+                window.opener && window.opener.postMessage('windowClosed', '*');
+              });
+            </script>
+          </body>
+          </html>
+        `);
+        
+        // Listen for messages from the child window
+        const handleMessage = (event: MessageEvent) => {
+          if (event.data === 'windowClosed') {
+            externalWindowRef.current = null;
+            setIsExternalFloat(false);
+            setIsFloating(false);
+          }
+        };
+        window.addEventListener('message', handleMessage);
+        
+        // Clean up event listener when the component unmounts
+        return () => {
+          window.removeEventListener('message', handleMessage);
+        };
+      } else {
+        // If the window couldn't be opened (e.g., popup blocked)
+        toast({
+          title: "External Window Blocked",
+          description: "Please allow popups for this site to use external floating mode.",
+          variant: "destructive",
+        });
+      }
+    } else if (isExternalFloat) {
+      // If already in external floating mode, close the window
+      if (externalWindowRef.current) {
+        externalWindowRef.current.close();
+        externalWindowRef.current = null;
+      }
+      setIsExternalFloat(false);
+      setIsFloating(false);
+    }
+  };
+  
   return (
     <div className={`flex flex-col h-full bg-zinc-900 ${isFloating ? 'has-floating-video' : ''}`}>
       <div className="p-4">
