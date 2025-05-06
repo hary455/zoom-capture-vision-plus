@@ -2,9 +2,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Button } from './ui/button';
-import { RefreshCw, Smartphone } from 'lucide-react';
+import { RefreshCw, Smartphone, AlertTriangle } from 'lucide-react';
 import { toast } from './ui/use-toast';
 import { getFFmpeg } from '@/utils/ffmpeg-utils';
+import { Alert, AlertTitle, AlertDescription } from './ui/alert';
 
 interface MobileRtspPlayerProps {
   url: string;
@@ -17,12 +18,29 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [ffmpegLoaded, setFfmpegLoaded] = useState<boolean | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isNative = Capacitor.isNativePlatform();
   
   // Generate a unique ID for the player element
   const playerId = `rtsp-player-${Math.random().toString(36).substring(2, 9)}`;
+  
+  // Try to load FFmpeg to check its availability
+  const checkFfmpegAvailability = async () => {
+    try {
+      setIsProcessing(true);
+      await getFFmpeg();
+      setFfmpegLoaded(true);
+      setIsProcessing(false);
+      return true;
+    } catch (error) {
+      console.error("Error loading FFmpeg:", error);
+      setFfmpegLoaded(false);
+      setIsProcessing(false);
+      return false;
+    }
+  };
   
   // Try to load and process RTSP in browser using FFmpeg
   const processRtspWithFFmpeg = async () => {
@@ -31,8 +49,14 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
     try {
       setIsProcessing(true);
       
-      // Attempt to load FFmpeg first
-      await getFFmpeg();
+      // Check if FFmpeg is available
+      const ffmpegAvailable = await checkFfmpegAvailability();
+      
+      if (!ffmpegAvailable) {
+        setError("Failed to load FFmpeg library. Check your internet connection or try again later.");
+        setIsProcessing(false);
+        return;
+      }
       
       toast({
         title: "FFmpeg Ready",
@@ -41,7 +65,6 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
       
       // For browser RTSP support, we would need a proxy server
       // This part would require a server-side component to convert RTSP to WebRTC or HLS
-      // For now, we'll just set a status message
       
       setIsProcessing(false);
       setIsLoaded(true);
@@ -70,6 +93,7 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
     const setupPlayer = async () => {
       setIsLoaded(false);
       setError(null);
+      setFfmpegLoaded(null);
       
       // For native Android platforms
       if (isNative && Capacitor.getPlatform() === 'android') {
@@ -96,6 +120,7 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
   const reloadPlayer = () => {
     setIsLoaded(false);
     setError(null);
+    setFfmpegLoaded(null);
     
     if (isNative && Capacitor.getPlatform() === 'android') {
       setTimeout(() => {
@@ -109,7 +134,12 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center bg-black/80 text-white p-4 rounded" style={{ width, height }}>
-        <p className="text-red-400 mb-4">{error}</p>
+        <Alert variant="destructive" className="mb-4 bg-red-900/40 border-red-800">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+        
         <Button variant="outline" onClick={reloadPlayer}>
           <RefreshCw className="mr-2 h-4 w-4" />
           Try Again
@@ -158,6 +188,14 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center h-full bg-black/80 text-white p-4">
+          <Alert variant="default" className="mb-4 bg-yellow-900/20 border-yellow-800">
+            <AlertTriangle className="h-4 w-4 text-yellow-500" />
+            <AlertTitle>Limited RTSP Support</AlertTitle>
+            <AlertDescription>
+              FFmpeg library status: {ffmpegLoaded === true ? "Loaded ✓" : ffmpegLoaded === false ? "Failed to load ✗" : "Unknown"}
+            </AlertDescription>
+          </Alert>
+          
           <p className="text-lg mb-2">Limited RTSP Support in Browser</p>
           <p className="text-sm mb-4 text-center">RTSP streams require specialized handling in web browsers</p>
           

@@ -31,6 +31,11 @@ export default defineConfig(({ mode }) => ({
   build: {
     rollupOptions: {
       external: ['@ffmpeg/core'],
+      output: {
+        manualChunks: {
+          ffmpeg: ['@ffmpeg/ffmpeg', '@ffmpeg/util']
+        }
+      },
     },
   },
 }));

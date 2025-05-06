@@ -1,3 +1,4 @@
+
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { toast } from "@/components/ui/use-toast";
@@ -12,22 +13,43 @@ export const getFFmpeg = async (): Promise<FFmpeg> => {
   ffmpeg = new FFmpeg();
   
   try {
-    // Load FFmpeg core
-    await ffmpeg.load({
-      coreURL: await toBlobURL(
-        `https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.wasm`,
-        'application/wasm'
-      )
-    });
+    // Try multiple CDN sources for better reliability
+    const cdnSources = [
+      'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.wasm',
+      'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.wasm',
+      // Add more fallback URLs if needed
+    ];
     
-    console.log('FFmpeg loaded successfully');
+    let loaded = false;
+    let lastError = null;
+    
+    // Try each CDN source until one succeeds
+    for (const source of cdnSources) {
+      try {
+        console.log(`Attempting to load FFmpeg from: ${source}`);
+        await ffmpeg.load({
+          coreURL: await toBlobURL(source, 'application/wasm')
+        });
+        loaded = true;
+        console.log('FFmpeg loaded successfully from:', source);
+        break;
+      } catch (error) {
+        console.error(`Failed to load FFmpeg from ${source}:`, error);
+        lastError = error;
+      }
+    }
+    
+    if (!loaded) {
+      throw lastError || new Error('Failed to load FFmpeg from all sources');
+    }
   } catch (error) {
     console.error('Failed to load FFmpeg:', error);
     toast({
       title: "FFmpeg Error",
-      description: "Failed to load FFmpeg library",
+      description: "Failed to load FFmpeg library. Check your internet connection or try again later.",
       variant: "destructive",
     });
+    ffmpeg = null;
     throw error;
   }
   
@@ -182,8 +204,17 @@ export const applyFilterToVideo = async (
 // A server-side proxy would be required for production use
 export const prepareRtspStream = async (rtspUrl: string): Promise<{ ready: boolean; message: string }> => {
   try {
-    // Load FFmpeg
-    await getFFmpeg();
+    // Attempt to load FFmpeg first to check if it's available
+    try {
+      await getFFmpeg();
+      console.log('FFmpeg loaded for RTSP handling');
+    } catch (error) {
+      console.error('FFmpeg loading failed for RTSP:', error);
+      return { 
+        ready: false, 
+        message: "Unable to initialize FFmpeg. Check your internet connection or try again later." 
+      };
+    }
     
     // In a real implementation:
     // 1. We would use a server-side proxy to convert RTSP to HLS or WebRTC
@@ -214,3 +245,4 @@ export const videoFilters = {
   negative: 'negate',
   vignette: 'vignette=PI/4',
 };
+
