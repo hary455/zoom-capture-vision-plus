@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Play, Pause, Maximize, ZoomIn, ZoomOut, Save, X, Camera, Film, Image } from "lucide-react";
+import { Play, Pause, Maximize, ZoomIn, ZoomOut, Save, X, Camera, Film, Image, Disc } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Slider } from "@/components/ui/slider";
 import FloatingControls from "./FloatingControls";
@@ -9,6 +9,8 @@ import ReactPlayer from "react-player";
 import { Capacitor } from '@capacitor/core';
 import MobileRtspPlayer from "./MobileRtspPlayer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import FFmpegProcessing from "./FFmpegProcessing";
+import { getFFmpeg } from "@/utils/ffmpeg-utils";
 
 const StreamView = () => {
   const { toast } = useToast();
@@ -16,7 +18,7 @@ const StreamView = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isFloating, setIsFloating] = useState(false);
-  const [isExternalFloat, setIsExternalFloat] = useState(false); // New state for external floating
+  const [isExternalFloat, setIsExternalFloat] = useState(false);
   const [savedStreams, setSavedStreams] = useState<{name: string, url: string}[]>([]);
   const [isStream, setIsStream] = useState(false);
   const [playbackUrl, setPlaybackUrl] = useState("");
@@ -26,6 +28,12 @@ const StreamView = () => {
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const externalWindowRef = useRef<Window | null>(null);
+  
+  // FFmpeg state
+  const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
+  const [showFFmpegControls, setShowFFmpegControls] = useState(false);
+  const [processedVideoBlob, setProcessedVideoBlob] = useState<Blob | null>(null);
+  const processedVideoRef = useRef<HTMLVideoElement | null>(null);
   
   // Camera related states
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -40,6 +48,21 @@ const StreamView = () => {
     maxZoom: 10,
     minZoom: 1
   });
+  
+  // Try to preload FFmpeg
+  useEffect(() => {
+    const loadFFmpeg = async () => {
+      try {
+        await getFFmpeg();
+        setFfmpegLoaded(true);
+        console.log("FFmpeg preloaded successfully");
+      } catch (error) {
+        console.error("Failed to preload FFmpeg:", error);
+      }
+    };
+    
+    loadFFmpeg();
+  }, []);
   
   useEffect(() => {
     // Load saved streams from localStorage
@@ -790,6 +813,51 @@ const StreamView = () => {
     }
   };
   
+  // Handle processed video
+  const handleProcessedVideo = (blob: Blob) => {
+    setProcessedVideoBlob(blob);
+    
+    // Create a URL for the processed video
+    const url = URL.createObjectURL(blob);
+    
+    // If the processed video element exists, update its source
+    if (processedVideoRef.current) {
+      processedVideoRef.current.src = url;
+      processedVideoRef.current.load();
+    }
+    
+    toast({
+      title: "Processing Complete",
+      description: "Video has been processed with FFmpeg",
+    });
+  };
+  
+  // Download processed video
+  const downloadProcessedVideo = () => {
+    if (processedVideoBlob) {
+      const url = URL.createObjectURL(processedVideoBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `processed-video-${Date.now()}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  };
+  
+  // Get current stream for FFmpeg processing
+  const getCurrentStreamForProcessing = (): MediaStream | null => {
+    if (isCameraActive && cameraStreamRef.current) {
+      return cameraStreamRef.current;
+    } else if (isStreaming && recordingStreamRef.current) {
+      return recordingStreamRef.current;
+    } else if (isStreaming && videoRef.current && videoRef.current.captureStream) {
+      return videoRef.current.captureStream();
+    }
+    return null;
+  };
+  
   return (
     <div className={`flex flex-col h-full bg-zinc-900 ${isFloating ? 'has-floating-video' : ''}`}>
       <div className="p-4">
@@ -822,7 +890,50 @@ const StreamView = () => {
           >
             <Camera className="h-4 w-4" />
           </Button>
+          {ffmpegLoaded && (
+            <Button
+              onClick={() => setShowFFmpegControls(!showFFmpegControls)}
+              variant={showFFmpegControls ? "default" : "outline"}
+            >
+              <Disc className="h-4 w-4" />
+            </Button>
+          )}
         </div>
+        
+        {/* FFmpeg Controls */}
+        {showFFmpegControls && (
+          <div className="mt-4">
+            <FFmpegProcessing 
+              stream={getCurrentStreamForProcessing()}
+              videoBlob={processedVideoBlob || (isRecording ? null : undefined)}
+              onProcessedVideo={handleProcessedVideo}
+            />
+          </div>
+        )}
+        
+        {/* Processed Video Preview */}
+        {processedVideoBlob && (
+          <div className="mt-4 p-4 bg-zinc-800 rounded-lg">
+            <h3 className="text-sm font-medium text-zinc-300 mb-2">Processed Output</h3>
+            <div className="relative">
+              <video 
+                ref={processedVideoRef}
+                className="w-full h-auto max-h-48 rounded" 
+                controls
+              />
+              <div className="absolute bottom-2 right-2">
+                <Button 
+                  variant="secondary" 
+                  size="sm"
+                  onClick={downloadProcessedVideo}
+                >
+                  <Save className="h-4 w-4 mr-1" />
+                  Download
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Saved streams */}
         {savedStreams.length > 0 && !isCameraActive && (
