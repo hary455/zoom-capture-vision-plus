@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Button } from './ui/button';
-import { RefreshCw, Smartphone, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Smartphone, AlertTriangle, Wifi, WifiOff } from 'lucide-react';
 import { toast } from './ui/use-toast';
 import { getFFmpeg } from '@/utils/ffmpeg-utils';
 import { Alert, AlertTitle, AlertDescription } from './ui/alert';
@@ -19,6 +19,7 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ffmpegLoaded, setFfmpegLoaded] = useState<boolean | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isNative = Capacitor.isNativePlatform();
@@ -26,8 +27,28 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
   // Generate a unique ID for the player element
   const playerId = `rtsp-player-${Math.random().toString(36).substring(2, 9)}`;
   
+  // Monitor online/offline status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+  
   // Try to load FFmpeg to check its availability
   const checkFfmpegAvailability = async () => {
+    if (!isOnline) {
+      setFfmpegLoaded(false);
+      setError("You are offline. Internet connection is required to load FFmpeg.");
+      return false;
+    }
+    
     try {
       setIsProcessing(true);
       await getFFmpeg();
@@ -115,7 +136,7 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [url, isNative]);
+  }, [url, isNative, isOnline]);
   
   const reloadPlayer = () => {
     setIsLoaded(false);
@@ -140,7 +161,14 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
           <AlertDescription>{error}</AlertDescription>
         </Alert>
         
-        <Button variant="outline" onClick={reloadPlayer}>
+        {!isOnline && (
+          <div className="mb-4 flex items-center text-red-400">
+            <WifiOff className="mr-2 h-5 w-5" />
+            <span>You are currently offline</span>
+          </div>
+        )}
+        
+        <Button variant="outline" onClick={reloadPlayer} disabled={!isOnline}>
           <RefreshCw className="mr-2 h-4 w-4" />
           Try Again
         </Button>
@@ -153,6 +181,12 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
       <div className="flex flex-col items-center justify-center bg-black/80 text-white" style={{ width, height }}>
         <div className="mb-4 animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-white"></div>
         <p className="text-sm">Initializing FFmpeg for RTSP...</p>
+        {!isOnline && (
+          <div className="mt-4 flex items-center text-red-400">
+            <WifiOff className="mr-2 h-5 w-5" />
+            <span>Network connection lost</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -193,6 +227,7 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
             <AlertTitle>Limited RTSP Support</AlertTitle>
             <AlertDescription>
               FFmpeg library status: {ffmpegLoaded === true ? "Loaded ✓" : ffmpegLoaded === false ? "Failed to load ✗" : "Unknown"}
+              {!isOnline && " (Offline Mode)"}
             </AlertDescription>
           </Alert>
           
@@ -211,7 +246,19 @@ const MobileRtspPlayer: React.FC<MobileRtspPlayerProps> = ({ url, width = '100%'
             <p>3. Set up an RTSP-to-HLS proxy server</p>
           </div>
           
-          <Button variant="outline" className="mt-2" onClick={reloadPlayer}>
+          {isOnline ? (
+            <div className="flex items-center space-x-2 mb-4">
+              <Wifi className="h-5 w-5 text-green-400" />
+              <span className="text-green-400 text-sm">Online</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-2 mb-4">
+              <WifiOff className="h-5 w-5 text-red-400" />
+              <span className="text-red-400 text-sm">Offline - Internet required for FFmpeg</span>
+            </div>
+          )}
+          
+          <Button variant="outline" className="mt-2" onClick={reloadPlayer} disabled={!isOnline}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh Player
           </Button>

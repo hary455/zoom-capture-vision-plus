@@ -26,11 +26,17 @@ export default defineConfig(({ mode }) => ({
     },
   },
   optimizeDeps: {
-    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', '@ffmpeg/core'],
+    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+    esbuildOptions: {
+      target: 'esnext',
+      supported: {
+        bigint: true
+      },
+    },
   },
   build: {
+    target: 'esnext',
     rollupOptions: {
-      external: ['@ffmpeg/core'],
       output: {
         manualChunks: {
           ffmpeg: ['@ffmpeg/ffmpeg', '@ffmpeg/util']

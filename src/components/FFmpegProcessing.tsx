@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { applyFilterToVideo, processLiveStream, videoFilters } from "@/utils/ffmpeg-utils";
-import { Film, Save, Play, Pause, Disc } from "lucide-react";
+import { Film, Save, Play, Pause, Disc, WifiOff } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
 interface FFmpegProcessingProps {
@@ -24,10 +24,34 @@ const FFmpegProcessing: React.FC<FFmpegProcessingProps> = ({
   const [selectedFilter, setSelectedFilter] = useState<string>('');
   const [isLiveProcessing, setIsLiveProcessing] = useState(false);
   const [liveProcessController, setLiveProcessController] = useState<{ stop: () => void } | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  
+  // Monitor online/offline status
+  React.useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
   
   // Apply filter to a video blob
   const handleApplyFilter = async () => {
     if (!videoBlob || !selectedFilter) return;
+    
+    if (!isOnline) {
+      toast({
+        title: "Offline Mode",
+        description: "Internet connection is required to load FFmpeg",
+        variant: "destructive",
+      });
+      return;
+    }
     
     try {
       setIsProcessing(true);
@@ -64,10 +88,19 @@ const FFmpegProcessing: React.FC<FFmpegProcessingProps> = ({
   const startLiveProcessing = async () => {
     if (!stream) return;
     
+    if (!isOnline) {
+      toast({
+        title: "Offline Mode",
+        description: "Internet connection is required to load FFmpeg",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     try {
       setIsLiveProcessing(true);
       
-      // Fix: Use await to resolve the Promise before setting state
+      // Use async/await properly to handle the Promise
       const controller = await processLiveStream(
         stream,
         'mp4',
@@ -79,6 +112,7 @@ const FFmpegProcessing: React.FC<FFmpegProcessingProps> = ({
         }
       );
       
+      // Now controller is the resolved value, not a Promise
       setLiveProcessController(controller);
       
       toast({
@@ -117,12 +151,19 @@ const FFmpegProcessing: React.FC<FFmpegProcessingProps> = ({
           <h3 className="text-lg font-medium">FFmpeg Processing</h3>
         </div>
         
+        {!isOnline && (
+          <div className="bg-red-900/20 border border-red-800 rounded p-2 flex items-center space-x-2">
+            <WifiOff className="h-4 w-4 text-red-400" />
+            <span className="text-red-400 text-sm">Offline - FFmpeg features unavailable</span>
+          </div>
+        )}
+        
         {/* Filter Selection */}
         <div className="grid grid-cols-2 gap-2">
           <Select
             value={selectedFilter}
             onValueChange={setSelectedFilter}
-            disabled={isProcessing || isLiveProcessing}
+            disabled={isProcessing || isLiveProcessing || !isOnline}
           >
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Select filter" />
@@ -140,7 +181,7 @@ const FFmpegProcessing: React.FC<FFmpegProcessingProps> = ({
             <Button 
               variant="default" 
               onClick={handleApplyFilter}
-              disabled={isProcessing || !selectedFilter || isLiveProcessing}
+              disabled={isProcessing || !selectedFilter || isLiveProcessing || !isOnline}
             >
               <Film className="mr-2 h-4 w-4" />
               Apply Filter
@@ -156,7 +197,7 @@ const FFmpegProcessing: React.FC<FFmpegProcessingProps> = ({
                 variant="default" 
                 className="w-full"
                 onClick={startLiveProcessing}
-                disabled={isProcessing}
+                disabled={isProcessing || !isOnline}
               >
                 <Play className="mr-2 h-4 w-4" />
                 Start Live Processing

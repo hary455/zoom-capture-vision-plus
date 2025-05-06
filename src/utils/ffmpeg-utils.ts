@@ -5,33 +5,52 @@ import { toast } from "@/components/ui/use-toast";
 
 // Create a singleton FFmpeg instance
 let ffmpeg: FFmpeg | null = null;
+let isLoadingFFmpeg = false;
 
 export const getFFmpeg = async (): Promise<FFmpeg> => {
+  // Return cached instance if available
   if (ffmpeg) return ffmpeg;
   
-  // Create a new FFmpeg instance
-  ffmpeg = new FFmpeg();
+  // Prevent multiple simultaneous load attempts
+  if (isLoadingFFmpeg) {
+    throw new Error('FFmpeg is already being loaded');
+  }
+  
+  isLoadingFFmpeg = true;
   
   try {
-    // Try multiple CDN sources for better reliability
+    // Create a new FFmpeg instance
+    ffmpeg = new FFmpeg();
+    
+    // Try multiple sources for better reliability
     const cdnSources = [
+      // Try local files first (these would be in the public folder)
+      '/ffmpeg/ffmpeg-core.wasm',
+      // Then try multiple CDNs
       'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.wasm',
       'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.wasm',
+      'https://cdnjs.cloudflare.com/ajax/libs/ffmpeg/0.12.6/ffmpeg-core.wasm',
       // Add more fallback URLs if needed
     ];
     
     let loaded = false;
     let lastError = null;
     
-    // Try each CDN source until one succeeds
+    // Try each source until one succeeds
     for (const source of cdnSources) {
       try {
         console.log(`Attempting to load FFmpeg from: ${source}`);
+        
         await ffmpeg.load({
           coreURL: await toBlobURL(source, 'application/wasm')
         });
+        
         loaded = true;
         console.log('FFmpeg loaded successfully from:', source);
+        toast({
+          title: "FFmpeg Ready",
+          description: "Successfully loaded video processing engine",
+        });
         break;
       } catch (error) {
         console.error(`Failed to load FFmpeg from ${source}:`, error);
@@ -50,9 +69,11 @@ export const getFFmpeg = async (): Promise<FFmpeg> => {
       variant: "destructive",
     });
     ffmpeg = null;
+    isLoadingFFmpeg = false;
     throw error;
   }
   
+  isLoadingFFmpeg = false;
   return ffmpeg;
 };
 
@@ -245,4 +266,3 @@ export const videoFilters = {
   negative: 'negate',
   vignette: 'vignette=PI/4',
 };
-
