@@ -14,6 +14,10 @@ export default defineConfig(({ mode }) => ({
       "Cross-Origin-Embedder-Policy": "require-corp",
       "Cross-Origin-Opener-Policy": "same-origin",
     },
+    fs: {
+      // Allow serving files from one level up the project directory to include ffmpeg files
+      allow: ['..']
+    }
   },
   plugins: [
     react(),

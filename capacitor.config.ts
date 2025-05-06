@@ -10,7 +10,20 @@ const config: CapacitorConfig = {
     cleartext: true
   },
   plugins: {
-    // We'll add plugin configurations here as needed
+    // Configure permissions for RTSP streaming
+    CapacitorHttp: {
+      enabled: true
+    },
+    // Allow cleartext traffic for RTSP streams (many RTSP streams are not encrypted)
+    AndroidConfig: {
+      webContentsDebuggingEnabled: true,
+      allowMixedContent: true,
+      captureInput: true
+    }
+  },
+  android: {
+    // Allow cleartext traffic (non-HTTPS) for RTSP streams
+    allowMixedContent: true
   }
 };
 
