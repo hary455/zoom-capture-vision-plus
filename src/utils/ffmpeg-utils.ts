@@ -96,7 +96,7 @@ export const processLiveStream = async (
   outputFormat: string = 'mp4',
   durationMs: number = 5000, // Default to 5 second chunks
   onChunkProcessed: (blob: Blob) => void
-) => {
+): Promise<{ stop: () => void }> => {
   try {
     // Create a MediaRecorder to capture stream data
     const mediaRecorder = new MediaRecorder(stream, {

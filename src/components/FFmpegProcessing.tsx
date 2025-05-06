@@ -61,13 +61,14 @@ const FFmpegProcessing: React.FC<FFmpegProcessingProps> = ({
   };
   
   // Start live stream processing
-  const startLiveProcessing = () => {
+  const startLiveProcessing = async () => {
     if (!stream) return;
     
     try {
       setIsLiveProcessing(true);
       
-      const controller = processLiveStream(
+      // Fix: Use await to resolve the Promise before setting state
+      const controller = await processLiveStream(
         stream,
         'mp4',
         3000, // Process 3-second chunks
